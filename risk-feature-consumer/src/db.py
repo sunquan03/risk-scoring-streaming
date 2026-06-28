@@ -3,9 +3,10 @@ from socket import create_connection
 import pymysql
 import pymysql.cursors
 import threading
+import json
 from contextlib import contextmanager
 from typing import Optional
-
+from datetime import datetime, timedelta
 
 class TiDB:
     def __init__(self, host: str, port: int, user: str, password: str, database: str, pool_size: int = 10):
@@ -122,3 +123,36 @@ def upsert_batch(pool: TiDB, table: str, rows: list[dict]) -> int:
             conn.commit()
 
     return affected_rows
+
+
+
+
+def write_kv_cache(
+    pool: TiDB,
+    cache_key: str,
+    value: dict,
+    ttl_seconds: int | None = None,
+) -> None:
+    value_json = json.dumps(value)
+
+    expires_at = None
+    if ttl_seconds is not None:
+        expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+
+    query = f"""
+        INSERT INTO kv_cache
+            (cache_key, value_json, computed_at, expires_at, version)
+        VALUES
+            (%s, %s, NOW(3), %s, 1)
+        ON DUPLICATE KEY UPDATE
+            value_json  = VALUES(value_json),
+            computed_at = NOW(3),
+            expires_at  = VALUES(expires_at),
+            version     = version + 1
+    """
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (cache_key, value_json, ttl_seconds))
+            affected_rows = cur.rowcount
+
+    print("KV_CACHE", affected_rows)
