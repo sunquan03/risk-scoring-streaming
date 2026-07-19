@@ -8,7 +8,8 @@ def compute_and_cache(
         pool: db.TiDB,
         config: PipelineConfig,
         client_ids: set[str]
-):
+) -> dict[str, int]:
+    stats = {fg.group_id: 0 for fg in config.feature_groups}
     aggr_queries = config.sql_queries
     if not aggr_queries:
         return
@@ -24,6 +25,8 @@ def compute_and_cache(
             if isinstance(features, str):
                 features = json.loads(features)
             write_kv_cache(pool, cache_key, features, fg.ttl_seconds)
+            stats[fg.group_id] += 1
+    return stats
 
 def _run_aggregation(
         pool: db.TiDB,
