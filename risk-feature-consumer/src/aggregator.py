@@ -24,7 +24,7 @@ def compute_and_cache(
             features = res["features"]
             if isinstance(features, str):
                 features = json.loads(features)
-            write_kv_cache(pool, cache_key, features, fg.ttl_seconds)
+            db.write_kv_cache(pool, cache_key, features, fg.ttl_seconds)
             stats[fg.group_id] += 1
     return stats
 
@@ -42,20 +42,3 @@ def _run_aggregation(
         row = cursor.fetchone()
         return row
 
-def write_kv_cache(
-        pool: db.TiDB,
-        key: str,
-        calc_data: dict,
-        ttl: int):
-    with pool.connection() as conn:
-        cursor = conn.cursor()
-        expires_at =  datetime.now(timezone.utc) + timedelta(seconds=ttl)
-        query = """INSERT INTO tidb_de.kv_cache (cache_key, value_json, expires_at, computed_at, version)
-                   VALUES (%s, %s, %s, NOW(3), 1)
-                   ON DUPLICATE KEY UPDATE 
-                        value_json  = VALUES(value_json),
-                        computed_at = NOW(3),
-                        expires_at = VALUES(expires_at),
-                        version = version + 1;"""
-        cursor.execute(query, params=(key, json.dumps(calc_data), ttl))
-        conn.commit()
