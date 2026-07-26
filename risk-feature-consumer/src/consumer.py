@@ -95,7 +95,18 @@ class Consumer:
         self._running = False
 
     def _write_dlq(self, rejected: list[tuple]) -> None:
-        pass
+        conn = self.pg_conn_factory()
+        try:
+            with conn.cursor() as cur:
+                query = """INSERT INTO pipeline_config.dlq_events
+                            (topic_name, kafka_partition, kafka_offset,raw_payload, error_type, error_message)
+                            VALUES (%s, %s, %s, %s, %s, %s)"""
+                cur.executemany(query, rejected)
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+        finally:
+            conn.close()
 
     def _write_run_metrics(self, consumed, inserted, rejected, cache_written, duration_ms) -> None:
         pass
