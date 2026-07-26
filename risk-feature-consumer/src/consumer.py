@@ -109,4 +109,16 @@ class Consumer:
             conn.close()
 
     def _write_run_metrics(self, consumed, inserted, rejected, cache_written, duration_ms) -> None:
-        pass
+        conn = self.pg_conn_factory()
+        try:
+            with conn.cursor() as cur:
+                query = """INSERT INTO pipeline_config.pipeline_runs
+                            (topic_name, batch_number, messages_consumed,messages_inserted, messages_rejected,cache_keys_written, duration_ms, finished_at)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())"""
+
+                cur.execute(query, (self._topic_cfg.topic_name,self._batch_number,consumed,inserted, rejected, cache_written,duration_ms,))
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+        finally:
+            conn.close()
