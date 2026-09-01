@@ -1,6 +1,10 @@
 package configs
 
-import "os"
+import (
+	"os"
+
+	"github.com/sunquan03/risk-scoring-streaming/risk-feature-api/package/utils"
+)
 
 type Config struct {
 	TiDBHost     string
@@ -15,13 +19,13 @@ type Config struct {
 
 func LoadConfig() *Config {
 	return &Config{
-		TiDBHost:     getEnv("TIDB_HOST", "127.0.0.1"),
-		TiDBPort:     getEnvInt("TiDB_PORT", 3306),
-		TiDBUser:     getEnv("TIDB_USER", "risks"),
-		TiDBPassword: getEnv("TIDB_PASSWORD", ""),
-		TiDBDatabase: getEnv("TIDB_DATABASE", "risks"),
-		TiDBMaxConns: getEnvInt("TIDB_MAX_CONNS", 20),
-		TiDBMaxIdle:  getEnvInt("TIDB_MAX_IDLE", 300),
+		TiDBHost:     utils.GetEnv("TIDB_HOST", "127.0.0.1"),
+		TiDBPort:     utils.GetEnvInt("TiDB_PORT", 3306),
+		TiDBUser:     utils.GetEnv("TIDB_USER", "risks"),
+		TiDBPassword: utils.GetEnv("TIDB_PASSWORD", ""),
+		TiDBDatabase: utils.GetEnv("TIDB_DATABASE", "risks"),
+		TiDBMaxConns: utils.GetEnvInt("TIDB_MAX_CONNS", 20),
+		TiDBMaxIdle:  utils.GetEnvInt("TIDB_MAX_IDLE", 300),
 		APIAddr:      os.Getenv("API_ADDR"),
 	}
 }
