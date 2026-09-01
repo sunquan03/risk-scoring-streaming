@@ -25,7 +25,7 @@ func main() {
 
 		v1.GET("/risk-profile/:client_id", handlers.GetRiskProfile)
 		v1.GET("/risk-profile/:client_id/:group_id", handlers.GetFeatureGroup)
-
+		v1.DELETE("/risk-profile/:client_id/cache", handlers.InvalidateCache)
 	}
 
 	addr := utils.GetEnv("APP_HOST", ":8080")

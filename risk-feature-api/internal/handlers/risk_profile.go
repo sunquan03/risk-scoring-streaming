@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -146,5 +147,24 @@ func GetFeatureGroup(c *gin.Context) {
 		"cache_hit":  false,
 		"fetched_at": time.Now().UTC(),
 		"features":   value,
+	})
+}
+
+func InvalidateCache(c *gin.Context) {
+	clientID := c.Param("client_id")
+	ctx := c.Request.Context()
+	db := tidb.Get().DB()
+
+	result, err := db.ExecContext(ctx, "delete from kv_cache where cache_key like ?", fmt.Sprintf("client:%s:%%", clientID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	affected, _ := result.RowsAffected()
+
+	c.JSON(http.StatusOK, gin.H{
+		"client_id":    clientID,
+		"keys_deleted": affected,
 	})
 }
