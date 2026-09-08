@@ -4,7 +4,7 @@ import uuid
 import confluent_kafka
 import os
 from config import Config
-from generator import EntityPool, TOPIC_WEIGHTS, GENERATORS
+from generator import EntityPool, TOPIC_WEIGHTS, GENERATORS, build_entry_pool
 import time
 import random
 
@@ -68,7 +68,13 @@ class Producer:
 
 
 def main():
-    producerConfig =  {"boostrap.servers": os.environ['BOOTSTRAP_SERVERS']}
-    producer = Producer('producer', producerConfig)
+    cfg = Config()
+    pool = build_entry_pool(cfg.seed, cfg.client_pool_size)
+
+    Producer(cfg, pool).run()
+
+
+if __name__ == "__main__":
+    main()
 
 

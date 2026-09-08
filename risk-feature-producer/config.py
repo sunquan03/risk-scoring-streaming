@@ -13,6 +13,7 @@ class Config:
     interval_ms: int = int(os.environ.get("INTERVAL_MS", "500"))
     max_events: int = int(os.environ.get("MAX_EVENTS", "0"))
     malformed_rate: float = float(os.environ.get("MALFORMED_RATE", "0.02"))
+    client_pool_size: int = int(os.environ.get("CLIENT_POOL_SIZE", "200"))
     seed: int = int(os.environ.get("SEED", "42"))
     log_level: str = os.environ.get("LOG_LEVEL", "INFO")
 
