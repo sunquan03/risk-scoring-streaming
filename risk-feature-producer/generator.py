@@ -1,4 +1,6 @@
 import random
+from datetime import date, timedelta, datetime, timezone
+import uuid
 
 TOPIC_APPLICATIONS = "loan-applications"
 TOPIC_PAYMENTS = "loan-payments"
@@ -69,4 +71,122 @@ def build_entry_pool(seed: int, n_cli: int) -> EntityPool:
     return EntityPool(client_idns, loans_per_client)
 
 
+def _iso(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+def _recent(max_minutes: int = 60) -> datetime:
+    return datetime.now(timezone.utc) - timedelta(minutes=random.randint(0, max_minutes))
+
+def _money(lo: float, hi: float, step: float = 1000.0) -> float:
+    return float(random.randint(int(lo / step), int(hi / step)) * step)
+
+
+def gen_loan_application(pool: EntityPool) -> dict:
+    status = random.choices(
+        ["APPROVED", "REJECTED", "PENDING", "CANCELLED"],
+        weights=[45, 35, 15, 5],
+    )[0]
+    requested = _money(50_000, 5_000_000)
+    applied_at = _recent()
+    decided = status != "PENDING"
+
+    return {
+        "application_id": str(uuid.uuid4()),
+        "client_id": pool.random_client(),
+        "product_code": random.choice(PRODUCTS),
+        "requested_amount": requested,
+        "approved_amount": round(requested * random.uniform(0.7, 1.0), 2) if status == "APPROVED" else None,
+        "term_months": random.choice([6, 12, 18, 24, 36, 60]),
+        "annual_rate": round(random.uniform(0.14, 0.32), 4),
+        "purpose": random.choice(PURPOSES),
+        "channel": random.choice(CHANNELS),
+        "status": status,
+        "rejection_reason": random.choice(REJECTION_REASONS) if status == "REJECTED" else None,
+        "score_at_decision": round(random.uniform(300, 850), 2) if decided else None,
+        "city": random.choice(KZ_CITIES),
+        "applied_at": _iso(applied_at),
+        "decided_at": _iso(applied_at + timedelta(minutes=random.randint(1, 45))) if decided else None,
+    }
+
+
+def gen_loan_payment(pool: EntityPool) -> dict:
+    client_id, loan_id = pool.random_client_with_loan()
+    event_type = random.choices(PAY_EVENT_TYPES, weights=PAY_EVENT_WEIGHTS)[0]
+
+    scheduled = round(random.uniform(5_000, 80_000), 2)
+    actual = round(scheduled * random.uniform(0.5, 1.0), 2) if event_type != "MISSED" else None
+    overdue = random.randint(1, 120) if event_type in ("MISSED", "LATE_FEE", "PENALTY") else 0
+
+    return {
+        "event_id": str(uuid.uuid4()),
+        "client_id": client_id,
+        "loan_id": loan_id,
+        "event_type": event_type,
+        "scheduled_amount": scheduled,
+        "actual_amount": actual,
+        "principal_part": round(actual * 0.6, 2) if actual else None,
+        "interest_part": round(actual * 0.4, 2) if actual else None,
+        "penalty_amount": round(random.uniform(500, 5_000), 2) if event_type in ("LATE_FEE", "PENALTY") else 0,
+        "days_overdue": overdue,
+        "payment_channel": random.choice(PAY_CHANNELS),
+        "due_date": (date.today() - timedelta(days=random.randint(0, 60))).isoformat(),
+        "event_at": _iso(_recent()),
+    }
+
+
+def gen_loan_operation(pool: EntityPool) -> dict:
+    client_id, loan_id = pool.random_client_with_loan()
+    suspicious = random.random() < 0.05
+
+    return {
+        "event_id": str(uuid.uuid4()),
+        "client_id": client_id,
+        "loan_id": loan_id,
+        "operation_type": random.choices(OPERATION_TYPES, weights=OPERATION_WEIGHTS)[0],
+        "amount": round(random.uniform(10_000, 2_000_000), 2),
+        "device_id": str(uuid.uuid4()),
+        "device_type": random.choice(DEVICE_TYPES),
+        "ip_country": random.choices(["KZ", "RU", "US", "DE", "TR"], weights=[88, 5, 3, 2, 2])[0],
+        "is_suspicious": suspicious,
+        "suspicious_reason": random.choice(
+            ["UNUSUAL_LOCATION", "NEW_DEVICE", "VELOCITY_BREACH"]
+        ) if suspicious else None,
+        "operation_at": _iso(_recent()),
+    }
+
+
+def gen_client_money(pool: EntityPool) -> dict:
+    event_type = random.choices(MONEY_EVENT_TYPES, weights=MONEY_EVENT_WEIGHTS)[0]
+    before = round(random.uniform(5_000, 2_000_000), 2)
+    amount = round(random.uniform(10_000, 500_000), 2)
+
+    is_credit = event_type in ("SALARY_CREDIT", "TRANSFER_IN", "LARGE_CREDIT")
+    after = round(before + amount, 2) if is_credit else round(max(before - amount, 0), 2)
+
+    period_month = None
+    if event_type == "MONTH_END_BALANCE":
+        period_month = date.today().replace(day=1).isoformat()
+        after = before
+
+    return {
+        "event_id": str(uuid.uuid4()),
+        "client_id": pool.random_client(),
+        "event_type": event_type,
+        "account_type": random.choice(["CURRENT", "SAVINGS", "DEPOSIT"]),
+        "balance_before": before,
+        "balance_after": after,
+        "amount": amount,
+        "currency": "KZT",
+        "counterparty_id": str(uuid.uuid4()) if event_type.startswith("TRANSFER") else None,
+        "source_system": random.choice(SOURCE_SYSTEMS),
+        "event_at": _iso(_recent()),
+        "period_month": period_month,
+    }
+
+
+GENERATORS = {
+    TOPIC_APPLICATIONS: gen_loan_application,
+    TOPIC_PAYMENTS: gen_loan_payment,
+    TOPIC_OPERATIONS: gen_loan_operation,
+    TOPIC_MONEY: gen_client_money,
+}
