@@ -9,15 +9,15 @@ TOPIC_MONEY = "client-money"
 
 KZ_CITIES = [
     "Almaty", "Astana", "Shymkent", "Karaganda", "Aktobe", "Taraz",
-    "Pavlodar", "Ust-Kamenogorsk", "Semey", "Atyrau", "Kostanay",
-    "Kyzylorda", "Oral", "Petropavl", "Aktau",
+    "Pavlodar", "Oskemen", "Semey", "Atyrau", "Kostanay", "Kokshetau"
+    "Kyzylorda", "Oral", "Petropavl", "Aktau", "Shymkent", "Turkestan"
 ]
 PRODUCTS = ["CONSUMER_LOAN", "MORTGAGE", "MICRO", "AUTO_LOAN", "CREDIT_CARD"]
 CHANNELS = ["MOBILE_APP", "WEB", "BRANCH", "KASPI_PAY", "CALL_CENTER"]
 PAY_CHANNELS = ["KASPI_PAY", "BANK_TRANSFER", "CASH", "AUTO_DEBIT", "MOBILE_APP"]
 DEVICE_TYPES = ["IOS", "ANDROID", "WEB", "POS"]
-SOURCE_SYSTEMS = ["KASPI_BANK", "HALYK", "JYSAN", "FORTE", "BEREKE"]
-PURPOSES = ["HOME_REPAIR", "EDUCATION", "MEDICAL", "TRAVEL", "BUSINESS", None]
+SOURCE_SYSTEMS = ["KASPI", "HALYK", "ALATAU_CITY", "FORTE", "BEREKE", "FREEDOM", "ALTYN"]
+PURPOSES = ["HOME_REPAIR", "EDUCATION", "MEDICAL", "TRAVEL", "BUSINESS", "MORTAGE", None]
 REJECTION_REASONS = [
     "LOW_SCORE", "HIGH_DTI", "EXISTING_OVERDUE",
     "FRAUD_RISK", "INCOME_MISMATCH", "AGE_LIMIT",
@@ -38,7 +38,7 @@ MONEY_EVENT_WEIGHTS = [5, 25, 25, 25, 10, 10]
 TOPIC_WEIGHTS = {
     TOPIC_APPLICATIONS: 8,
     TOPIC_PAYMENTS: 46,
-    TOPIC_OPERATIONS: 11,
+    TOPIC_OPERATIONS: 12,
     TOPIC_MONEY: 35,
 }
 
@@ -124,8 +124,8 @@ def gen_loan_payment(pool: EntityPool) -> dict:
         "event_type": event_type,
         "scheduled_amount": scheduled,
         "actual_amount": actual,
-        "principal_part": round(actual * 0.6, 2) if actual else None,
-        "interest_part": round(actual * 0.4, 2) if actual else None,
+        "principal_part": round(actual * 0.7, 2) if actual else None,
+        "interest_part": round(actual * 0.3, 2) if actual else None,
         "penalty_amount": round(random.uniform(500, 5_000), 2) if event_type in ("LATE_FEE", "PENALTY") else 0,
         "days_overdue": overdue,
         "payment_channel": random.choice(PAY_CHANNELS),
@@ -146,7 +146,7 @@ def gen_loan_operation(pool: EntityPool) -> dict:
         "amount": round(random.uniform(10_000, 2_000_000), 2),
         "device_id": str(uuid.uuid4()),
         "device_type": random.choice(DEVICE_TYPES),
-        "ip_country": random.choices(["KZ", "RU", "US", "DE", "TR"], weights=[88, 5, 3, 2, 2])[0],
+        "ip_country": random.choices(["KZ", "RU", "US", "DE", "TR", "UK", "UZ", "KG"], weights=[88, 5, 3, 2, 2])[0],
         "is_suspicious": suspicious,
         "suspicious_reason": random.choice(
             ["UNUSUAL_LOCATION", "NEW_DEVICE", "VELOCITY_BREACH"]
