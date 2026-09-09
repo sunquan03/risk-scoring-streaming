@@ -5,7 +5,7 @@
 CREATE SCHEMA IF NOT EXISTS pipeline_config;
 
 -- Kafka topic configuration
-CREATE TABLE pipeline_config.kafka_topics (
+CREATE TABLE IF NOT EXISTS pipeline_config.kafka_topics (
     topic_name          VARCHAR(120)    NOT NULL,
     consumer_group      VARCHAR(120)    NOT NULL,
     target_table        VARCHAR(80)     NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE pipeline_config.kafka_topics (
 
 -- Feature group configuration
 -- Each feature group is one cache key pattern + ttl
-CREATE TABLE pipeline_config.feature_groups (
+CREATE TABLE IF NOT EXISTS pipeline_config.feature_groups (
     group_id            VARCHAR(60)     NOT NULL,
     display_name        VARCHAR(100)    NOT NULL,
     cache_key_template  VARCHAR(200)    NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE pipeline_config.feature_groups (
 );
 
 -- Field-level transformation rules for adding computed columns 
-CREATE TABLE pipeline_config.field_transforms (
+CREATE TABLE IF NOT EXISTS pipeline_config.field_transforms (
     transform_id        SERIAL          PRIMARY KEY,
     topic_name          VARCHAR(120)    NOT NULL REFERENCES pipeline_config.kafka_topics(topic_name),
     source_field        VARCHAR(80)     NOT NULL, 
@@ -48,7 +48,7 @@ CREATE TABLE pipeline_config.field_transforms (
 );
 
 -- Dead letter queue tracking 
-CREATE TABLE pipeline_config.dlq_events (
+CREATE TABLE IF NOT EXISTS pipeline_config.dlq_events (
     dlq_id              BIGSERIAL       PRIMARY KEY,
     topic_name          VARCHAR(120)    NOT NULL,
     kafka_partition     INT             NOT NULL,
@@ -63,7 +63,7 @@ CREATE TABLE pipeline_config.dlq_events (
 );
 
 -- Pipeline run metrics (lightweight observability)
-CREATE TABLE pipeline_config.pipeline_runs (
+CREATE TABLE IF NOT EXISTS pipeline_config.pipeline_runs (
     run_id              BIGSERIAL       PRIMARY KEY,
     topic_name          VARCHAR(120)    NOT NULL,
     batch_number        BIGINT          NOT NULL,

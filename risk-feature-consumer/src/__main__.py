@@ -44,3 +44,7 @@ def main() -> None:
         pg_conn_factory=pg_conn_factory,
     )
     consumer.run()
+
+
+if __name__ == "__main__":
+    main()
