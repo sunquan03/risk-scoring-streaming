@@ -1,39 +1,33 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import psycopg2
+from psycopg2.extras import RealDictCursor
 
-@dataclass
+
 class Settings:
     def __init__(self):
-        # kafka
         self.kafka_bootstrap: str = os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092")
         self.kafka_security_protocol: str = os.environ.get("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT")
         self.kafka_sasl_mechanism: str | None = os.environ.get("KAFKA_SASL_MECHANISM", None)
         self.kafka_sasl_username: str | None = os.environ.get("KAFKA_SASL_USERNAME", None)
         self.kafka_sasl_password: str | None = os.environ.get("KAFKA_SASL_PASSWORD", None)
 
-        # TiDB
         self.tidb_host: str = os.environ.get("TIDB_HOST", "localhost")
         self.tidb_port: int = int(os.environ.get("TIDB_PORT", "4000"))
         self.tidb_user: str = os.environ.get("TIDB_USER", "root")
         self.tidb_password: str = os.environ.get("TIDB_PASSWORD", "")
-        self.tidb_database: str = os.environ.get("TIDB_DATABASE", "risks")
+        self.tidb_database: str = os.environ.get("TIDB_DATABASE", "risk_pipeline")
         self.tidb_pool_size: int = int(os.environ.get("TIDB_POOL_SIZE", "10"))
 
-        # Postgres
         self.pg_host: str = os.environ.get("PG_HOST", "localhost")
         self.pg_port: int = int(os.environ.get("PG_PORT", "5432"))
         self.pg_user: str = os.environ.get("PG_USER", "postgres")
         self.pg_password: str = os.environ.get("PG_PASSWORD", "")
-        self.pg_database: str = os.environ.get("PG_DATABASE", "pipeline_configs")
+        self.pg_database: str = os.environ.get("PG_DATABASE", "pipeline_config")
 
-        # Pipeline
         self.dlq_topic: str = os.environ.get("KAFKA_DLQ_TOPIC", "risk-pipeline-dlq")
         self.log_level: str = os.environ.get("LOG_LEVEL", "INFO")
-        self.sql_dir: str = os.environ.get("SQL_DIR", "sql")
-
-
-settings = Settings()
+        self.sql_dir: str = os.environ.get("SQL_DIR", "aggregations")
 
 
 @dataclass
@@ -62,9 +56,9 @@ class FeatureGroupConfig:
 @dataclass
 class PipelineConfig:
     settings:       Settings
-    topics:         list[TopicConfig]
-    feature_groups: list[FeatureGroupConfig]
-    sql_queries:    dict[str, str]
+    topics:         list[TopicConfig]        = field(default_factory=list)
+    feature_groups: list[FeatureGroupConfig] = field(default_factory=list)
+    sql_queries:    dict[str, str]           = field(default_factory=dict)
 
 
 
@@ -84,7 +78,7 @@ def load_config(stgs: Settings) -> PipelineConfig:
             ORDER BY topic_name
         """
 
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(tc_query)
             rows = cur.fetchall()
 
@@ -108,7 +102,7 @@ def load_config(stgs: Settings) -> PipelineConfig:
             ORDER BY priority, group_id
         """
 
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(fg_query)
             rows = cur.fetchall()
 
@@ -126,15 +120,12 @@ def load_config(stgs: Settings) -> PipelineConfig:
 
                 pipelineConfig.feature_groups.append(feature_group_config)
 
-        # reading queries
         for fg in pipelineConfig.feature_groups:
-            path = os.path.join(stgs.sql_dir, fg.group_id)
+            path = os.path.join(stgs.sql_dir, fg.sql_file)
             with open(path, mode="r", encoding="utf-8") as f:
-                sql_query= f.read()
+                sql_query = f.read()
                 pipelineConfig.sql_queries[fg.group_id] = sql_query
 
         return pipelineConfig
-    except Exception:
-        conn.close()
     finally:
         conn.close()

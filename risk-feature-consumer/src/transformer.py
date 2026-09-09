@@ -10,6 +10,38 @@ class TransformError(Exception):
         self.value = value
         super().__init__(message)
 
+
+def _req(raw: dict, field: str):
+    """Required field, as-is. Raises TransformError rather than KeyError so the
+    consumer can route the message to the DLQ instead of dying on it."""
+    try:
+        return raw[field]
+    except KeyError:
+        raise TransformError(message="Missing required field", field=field)
+
+
+def _req_upper(raw: dict, field: str) -> str:
+    val = _req(raw, field)
+    if not isinstance(val, str):
+        raise TransformError(message="Expected a string", field=field, value=str(val))
+    return val.upper()
+
+
+def _req_int(raw: dict, field: str) -> int:
+    val = _req(raw, field)
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        raise TransformError(message="Integer conversion failed", field=field, value=str(val))
+
+
+def _req_decimal(raw: dict, field: str) -> Decimal:
+    val = _req(raw, field)
+    try:
+        return Decimal(str(val))
+    except (InvalidOperation, TypeError, ValueError):
+        raise TransformError(message="Decimal conversion failed", field=field, value=str(val))
+
 class ApplicationDict(TypedDict, total=False):
     application_id: str
     client_id: str
@@ -32,33 +64,15 @@ class ApplicationDict(TypedDict, total=False):
 def transform_loan_application(raw: dict, kafka_offset: int) -> dict:
     result: ApplicationDict = {}
 
-    try:
-        result["application_id"] = raw["application_id"]
-    except KeyError:
-        raise TransformError(message="Missing required field", field="application_id")
-    try:
-        result["client_id"] = raw["client_id"]
-    except KeyError:
-        raise TransformError(message="Missing required field", field="client_id")
+    result["application_id"] = _req(raw, "application_id")
+    result["client_id"] = _req(raw, "client_id")
+    result["product_code"] = _req_upper(raw, "product_code")
+    result["requested_amount"] = _req_decimal(raw, "requested_amount")
+    result["term_months"] = _req_int(raw, "term_months")
+    result["annual_rate"] = _req_decimal(raw, "annual_rate")
+    result["channel"] = _req_upper(raw, "channel")
+    result["status"] = _req_upper(raw, "status")
 
-    result["product_code"] = raw["product_code"].upper()
-
-    try:
-        result["requested_amount"] = Decimal(str(raw["requested_amount"]))
-    except InvalidOperation:
-        raise TransformError(message="Decimal convertion failed", field="requested_amount", value=raw.get("requested_amount"))
-
-    result["term_months"] = int(raw["term_months"])
-
-    try:
-        result["annual_rate"] = Decimal(str(raw["annual_rate"]))
-    except InvalidOperation:
-        raise TransformError(message="Decimal convertion failed", field="annual_rate", value=raw.get("annual_rate"))
-
-    result["channel"] = raw["channel"].upper()
-    result["status"] = raw["status"].upper()
-
-    # optional fields
     try:
         result["approved_amount"] = Decimal(str(raw["approved_amount"])) if raw.get("approved_amount") is not None else None
     except InvalidOperation:
@@ -114,26 +128,12 @@ class LoanPaymentDict(TypedDict, total=False):
 def transform_loan_payment(raw: dict, kafka_offset: int) -> dict:
     result: LoanPaymentDict = {}
 
-    # event_id – default to a new UUID if not provided
     result["event_id"] = raw.get("event_id") or str(uuid.uuid4())
 
-    # required fields
-    try:
-        result["client_id"] = raw["client_id"]
-    except KeyError:
-        raise TransformError(message="Missing required field", field="client_id")
+    result["client_id"] = _req(raw, "client_id")
+    result["loan_id"] = _req(raw, "loan_id")
+    result["event_type"] = _req_upper(raw, "event_type")
 
-    try:
-        result["loan_id"] = raw["loan_id"]
-    except KeyError:
-        raise TransformError(message="Missing required field", field="loan_id")
-
-    try:
-        result["event_type"] = raw["event_type"].upper()
-    except KeyError:
-        raise TransformError(message="Missing required field", field="event_type")
-
-    # optional Decimal fields
     try:
         result["scheduled_amount"] = (
             Decimal(str(raw["scheduled_amount"]))
@@ -186,7 +186,6 @@ def transform_loan_payment(raw: dict, kafka_offset: int) -> dict:
             value=raw.get("interest_part"),
         )
 
-    # penalty_amount – default to Decimal("0") if missing
     try:
         penalty = raw.get("penalty_amount")
         result["penalty_amount"] = (
@@ -199,7 +198,6 @@ def transform_loan_payment(raw: dict, kafka_offset: int) -> dict:
             value=raw.get("penalty_amount"),
         )
 
-    # days_overdue – default to 0 if missing
     try:
         overdue = raw.get("days_overdue")
         result["days_overdue"] = int(overdue) if overdue is not None else 0
@@ -260,24 +258,11 @@ class LoanOperationsDict(TypedDict, total=False):
 def transform_loan_operations(raw: dict, kafka_offset: int) -> dict:
     result: LoanOperationsDict = {}
 
-    # event_id – default to a new UUID if not provided
     result["event_id"] = raw.get("event_id") or str(uuid.uuid4())
 
-    # required fields
-    try:
-        result["client_id"] = raw["client_id"]
-    except KeyError:
-        raise TransformError(message="Missing required field", field="client_id")
-
-    try:
-        result["loan_id"] = raw["loan_id"]
-    except KeyError:
-        raise TransformError(message="Missing required field", field="loan_id")
-
-    try:
-        result["operation_type"] = raw["operation_type"].upper()
-    except KeyError:
-        raise TransformError(message="Missing required field", field="operation_type")
+    result["client_id"] = _req(raw, "client_id")
+    result["loan_id"] = _req(raw, "loan_id")
+    result["operation_type"] = _req_upper(raw, "operation_type")
 
     try:
         result["amount"] = (
@@ -292,7 +277,6 @@ def transform_loan_operations(raw: dict, kafka_offset: int) -> dict:
             value=raw.get("amount"),
         )
 
-    # device_id – optional; if present, compute SHA‑256 hash and take first 32 chars
     device_raw = raw.get("device_id")
     if device_raw is not None:
         hash_hex = hashlib.sha256(str(device_raw).encode()).hexdigest()
@@ -386,15 +370,8 @@ def transform_client_money(raw: dict, kafka_offset: int) -> dict:
 
     result["event_id"] = raw.get("event_id") or str(uuid.uuid4())
 
-    try:
-        result["client_id"] = raw["client_id"]
-    except KeyError:
-        raise TransformError(message="Missing required field", field="client_id")
-
-    try:
-        result["event_type"] = raw["event_type"].upper()
-    except KeyError:
-        raise TransformError(message="Missing required field", field="event_type")
+    result["client_id"] = _req(raw, "client_id")
+    result["event_type"] = _req_upper(raw, "event_type")
 
     account_type = raw.get("account_type")
     if account_type is not None and account_type != "":

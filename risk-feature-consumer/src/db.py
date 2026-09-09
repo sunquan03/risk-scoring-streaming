@@ -1,12 +1,14 @@
-from socket import create_connection
-
 import pymysql
 import pymysql.cursors
 import threading
 import json
+import structlog
 from contextlib import contextmanager
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+log = structlog.get_logger()
+
 
 class TiDB:
     def __init__(self, host: str, port: int, user: str, password: str, database: str, pool_size: int = 10):
@@ -33,7 +35,6 @@ class TiDB:
         self._pool: list[pymysql.connections.Connection] = []
         self._lock = threading.Lock()
 
-        # pre-filling pool
         for _ in range(self.pool_size):
             self._pool.append(self.create_conn())
 
@@ -56,7 +57,13 @@ class TiDB:
 
     def release(self, conn: pymysql.connections.Connection):
         with self._lock:
-            self._pool.append(conn)
+            if len(self._pool) < self.pool_size:
+                self._pool.append(conn)
+                return
+        try:
+            conn.close()
+        except Exception:
+            pass
 
     @contextmanager
     def connection(self) :
@@ -92,36 +99,34 @@ def _pk_for_table(table: str) -> str:
 
 
 def upsert_batch(pool: TiDB, table: str, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+
     pk = _pk_for_table(table)
 
-    all_columns = rows[0].keys()
+    all_columns = list(rows[0].keys())
     upd_columns = [col for col in all_columns if col != pk]
 
-    columns = ", ".join(all_columns)
-    placeholders = ", ".join(["%s"] * len(upd_columns))
+    columns = ", ".join(f"`{col}`" for col in all_columns)
+    row_placeholders = "(" + ", ".join(["%s"] * len(all_columns)) + ")"
+    vals_placeholders = ", ".join([row_placeholders] * len(rows))
 
-    update_clause = ", ".join(f"{col} = VALUES({col})" for col in upd_columns)
+    update_clause = ", ".join(f"`{col}` = VALUES(`{col}`)" for col in upd_columns)
 
-    row_vals = []
-    for row in rows:
-        row_vals.append(tuple(row[col]) for col in all_columns)
+    params = [row[col] for row in rows for col in all_columns]
 
-    vals_placeholders = ", ".join([f"{placeholders}"] * len(row_vals))
-    query = f"""
-        INSERT INTO `{table}` ({columns}) VALUES ({vals_placeholders})
-        ON DUPLICATE KEY UPDATE {update_clause}
-    """
-
-    print(f"QUERY: {query}")
-
-    params = [val for rv in row_vals for val in rv]
+    query = (
+        f"INSERT INTO `{table}` ({columns}) VALUES {vals_placeholders} "
+        f"ON DUPLICATE KEY UPDATE {update_clause}"
+    )
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query, params)
             affected_rows = cur.rowcount
-            conn.commit()
+        conn.commit()
 
+    log.debug("upsert_batch", table=table, rows=len(rows), affected=affected_rows)
     return affected_rows
 
 
@@ -137,9 +142,9 @@ def write_kv_cache(
 
     expires_at = None
     if ttl_seconds is not None:
-        expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+        expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=ttl_seconds)
 
-    query = f"""
+    query = """
         INSERT INTO kv_cache
             (cache_key, value_json, computed_at, expires_at, version)
         VALUES
@@ -152,7 +157,8 @@ def write_kv_cache(
     """
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (cache_key, value_json, ttl_seconds))
+            cur.execute(query, (cache_key, value_json, expires_at))
             affected_rows = cur.rowcount
+        conn.commit()
 
-    print("KV_CACHE", affected_rows)
+    log.debug("write_kv_cache", cache_key=cache_key, affected=affected_rows)
