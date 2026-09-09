@@ -13,6 +13,7 @@ Kafka topics ──▶ risk-feature-consumer (Python) ──▶ TiDB (events + k
 
 | Service | What it does |
 |---|---|
+| [risk-feature-producer/](risk-feature-producer/) | Producer made for providing synthetic data for all 4 topics (randomized). |
 | [risk-feature-consumer/](risk-feature-consumer/) | Consumes four Kafka topics, writes events to TiDB, computes aggregate features into the `kv_cache` table. Reads its topic and feature-group config from Postgres. |
 | [risk-feature-api/](risk-feature-api/) | Serves features from `kv_cache`, computing them live on a cache miss. Listens on `:8080`. |
 
@@ -165,7 +166,6 @@ move on a monthly cycle rather than event by event.
 | `distinct_source_systems` | Distinct originating banks (`KASPI`, `HALYK`, `FREEDOM`, …). Broad multi-banking means any single lender sees a smaller share of the true picture. |
 | `distinct_accounts` | Variety across `CURRENT`, `SAVINGS`, `DEPOSIT`. Depth of the banking relationship; a deposit product is a wealth and stability marker. |
 
-## Infrastructure
+## Stack
 
-Kafka, TiDB, and Postgres are managed services outside the cluster. Both services
-read all configuration from environment variables.
+Kafka, TiDB, Postgres, Python, Go.
