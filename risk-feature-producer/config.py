@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from .generator import ALL_TOPICS
+from generator import ALL_TOPICS
 
 @dataclass
 class Config:
