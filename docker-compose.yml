@@ -1,0 +1,253 @@
+# features api: http://localhost:8080/v1/health
+# kafka ui: http://localhost:8081
+# tidb: mysql -h 127.0.0.1 -P 4000 -u root risk_pipeline
+# postgres: psql -h localhost -p 5433 -U postgres -d pipeline_config
+
+x-consumer: &consumer
+  build:
+    context: ./risk-feature-consumer
+  environment:
+    KAFKA_BOOTSTRAP: kafka:9092
+    TIDB_HOST: tidb
+    TIDB_PORT: "4000"
+    TIDB_USER: root
+    TIDB_PASSWORD: ""
+    TIDB_DATABASE: risk_pipeline
+    TIDB_POOL_SIZE: "5"
+    PG_HOST: postgres
+    PG_PORT: "5432"
+    PG_USER: postgres
+    PG_PASSWORD: postgres
+    PG_DATABASE: pipeline_config
+    SQL_DIR: /app/aggregations
+    LOG_LEVEL: INFO
+  depends_on:
+    migrate-tidb:
+      condition: service_completed_successfully
+    migrate-postgres:
+      condition: service_completed_successfully
+    kafka-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+
+services:
+
+  # infra
+  tidb:
+    image: pingcap/tidb:v7.5.0
+    command:
+      - --store=unistore
+      - --host=0.0.0.0
+      - --status-host=0.0.0.0
+      - -L=error
+    ports:
+      - "4000:4000"    # mysql protocol
+      - "10080:10080"  # status / metrics
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pipeline_config
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pipeline_config"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    ports:
+      - "29092:29092"
+    environment:
+      # KRaft 
+      CLUSTER_ID: MkU3OEVCRTVFMEQzNDNCQg==
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8081:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # setup
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    # 3 partitions so consumers can be scaled past one replica later.
+    # Auto-create is disabled above so topic config is explicit.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        for topic in loan-applications loan-payments loan-operations client-money; do
+          kafka-topics --bootstrap-server kafka:9092 \
+            --create --if-not-exists \
+            --topic "$$topic" \
+            --partitions 3 \
+            --replication-factor 1
+        done
+        echo "topics ready:"
+        kafka-topics --bootstrap-server kafka:9092 --list
+
+  migrate-tidb:
+    image: mysql:8.4
+    depends_on:
+      - tidb
+    # Schema and seed data both live in ./migrations.
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "waiting for tidb..."
+        ready=0
+        for _ in $$(seq 1 60); do
+          if mysqladmin ping -h tidb -P 4000 -u root --silent 2>/dev/null; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [ "$$ready" != "1" ]; then
+          echo "tidb did not become ready within 120s" >&2
+          exit 1
+        fi
+
+        echo "tidb up — applying schema"
+        mysql -h tidb -P 4000 -u root \
+          -e "CREATE DATABASE IF NOT EXISTS risk_pipeline"
+        mysql -h tidb -P 4000 -u root risk_pipeline < /migrations/01_tidb_schema.sql
+
+        # 03_tidb_tiflash_replicas.sql is deliberately not applied here
+        # use for tidb that provides tiflash
+
+        # Seed inserts are not idempotent so only load into an empty table.
+        COUNT=$$(mysql -N -B -h tidb -P 4000 -u root risk_pipeline \
+                   -e "SELECT COUNT(*) FROM clients")
+        if [ "$$COUNT" = "0" ]; then
+          echo "loading seed data"
+          mysql -h tidb -P 4000 -u root risk_pipeline < /migrations/clients_insert.sql
+          mysql -h tidb -P 4000 -u root risk_pipeline < /migrations/loan_accounts_insert.sql
+        else
+          echo "seed data already present ($$COUNT clients) — skipping"
+        fi
+        echo "tidb migration complete"
+
+  migrate-postgres:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        psql -v ON_ERROR_STOP=1 -h postgres -U postgres -d pipeline_config \
+          -f /migrations/02_postgres_config_schema.sql
+        echo "postgres migration complete"
+
+  # consumer service for calculating risk features 
+  consumer-loan-applications:
+    <<: *consumer
+    command: ["python", "-m", "src", "--topic", "loan-applications"]
+
+  consumer-loan-payments:
+    <<: *consumer
+    command: ["python", "-m", "src", "--topic", "loan-payments"]
+
+  consumer-loan-operations:
+    <<: *consumer
+    command: ["python", "-m", "src", "--topic", "loan-operations"]
+
+  consumer-client-money:
+    <<: *consumer
+    command: ["python", "-m", "src", "--topic", "client-money"]
+
+  # risks features api 
+  api:
+    build:
+      context: ./risk-feature-api
+    ports:
+      - "8080:8080"
+    environment:
+      TIDB_HOST: tidb
+      TIDB_PORT: "4000"
+      TIDB_USER: root
+      TIDB_PASSWORD: ""
+      TIDB_DATABASE: risk_pipeline
+      TIDB_MAX_CONNS: "20"
+      TIDB_MAX_IDLE: "10"
+      API_ADDR: ":8080"
+    depends_on:
+      migrate-tidb:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/v1/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # syntetic data producer
+  producer:
+    build:
+      context: ./risk-feature-producer
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      INTERVAL_MS: "200"
+      MALFORMED_RATE: "0.02"
+      MAX_EVENTS: "0"
+      SEED: "42"
+      CLIENT_POOL_SIZE: "200"
+      LOG_LEVEL: INFO
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+
+volumes:
+  postgres-data:
