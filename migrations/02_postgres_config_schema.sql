@@ -8,7 +8,7 @@ CREATE SCHEMA IF NOT EXISTS pipeline_config;
 CREATE TABLE pipeline_config.kafka_topics (
     topic_name          VARCHAR(120)    NOT NULL,
     consumer_group      VARCHAR(120)    NOT NULL,
-    target_table        VARCHAR(80)     NOT NULL    COMMENT 'TiDB table to upsert into',
+    target_table        VARCHAR(80)     NOT NULL,
     schema_version      SMALLINT        NOT NULL DEFAULT 1,
     batch_size          INT             NOT NULL DEFAULT 500,
     max_poll_interval_ms INT            NOT NULL DEFAULT 30000,
@@ -24,9 +24,9 @@ CREATE TABLE pipeline_config.kafka_topics (
 CREATE TABLE pipeline_config.feature_groups (
     group_id            VARCHAR(60)     NOT NULL,
     display_name        VARCHAR(100)    NOT NULL,
-    cache_key_template  VARCHAR(200)    NOT NULL,   -- e.g. 'client:{client_id}:loan_apps'
+    cache_key_template  VARCHAR(200)    NOT NULL,
     ttl_seconds         INT             NOT NULL DEFAULT 3600,
-    sql_file            VARCHAR(200)    NOT NULL,   -- path relative to /sql/aggregations/
+    sql_file            VARCHAR(200)    NOT NULL,
     recompute_on_miss   BOOLEAN         NOT NULL DEFAULT TRUE,
     is_active           BOOLEAN         NOT NULL DEFAULT TRUE,
     priority            SMALLINT        NOT NULL DEFAULT 10,
@@ -39,9 +39,9 @@ CREATE TABLE pipeline_config.feature_groups (
 CREATE TABLE pipeline_config.field_transforms (
     transform_id        SERIAL          PRIMARY KEY,
     topic_name          VARCHAR(120)    NOT NULL REFERENCES pipeline_config.kafka_topics(topic_name),
-    source_field        VARCHAR(80)     NOT NULL,   -- field name in Kafka JSON
-    target_field        VARCHAR(80)     NOT NULL,   -- column in TiDB
-    transform_type      VARCHAR(30)     NOT NULL,   -- COPY, CAST_DECIMAL, PARSE_DATETIME, HASH, UPPER, LOWER, MAP_VALUE
+    source_field        VARCHAR(80)     NOT NULL, 
+    target_field        VARCHAR(80)     NOT NULL,  
+    transform_type      VARCHAR(30)     NOT NULL,  
     transform_params    JSONB           DEFAULT '{}',
     is_active           BOOLEAN         NOT NULL DEFAULT TRUE,
     created_at          TIMESTAMPTZ     NOT NULL DEFAULT now()
