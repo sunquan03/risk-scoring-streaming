@@ -34,14 +34,21 @@ def compute_and_cache(
     return stats
 
 
+def _strip_line_comments(sql: str) -> str:
+    return "\n".join(
+        line for line in sql.splitlines()
+        if not line.lstrip().startswith("--")
+    )
+
+
 def _run_aggregation(
         pool: db.TiDB,
         sql: str,
         client_id: str
 ):
-    
-    n_params = sql.count(":client_id")
-    prepared = sql.replace("%", "%%").replace(":client_id", "%s")
+    stripped = _strip_line_comments(sql)
+    n_params = stripped.count(":client_id")
+    prepared = stripped.replace("%", "%%").replace(":client_id", "%s")
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
