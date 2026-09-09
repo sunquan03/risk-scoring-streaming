@@ -12,4 +12,4 @@ COPY aggregations/ ./aggregations/
 
 ENV PYTHONPATH=/app/src
 
-CMD ["python", "-m", "risk_feature_consumer", "--topic", "loan-applications"]
+CMD ["python", "-m", "src", "--topic", "loan-applications"]
