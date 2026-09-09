@@ -4,15 +4,16 @@ import (
 	"log"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunquan03/risk-scoring-streaming/risk-feature-api/internal/tidb"
 
 	"github.com/sunquan03/risk-scoring-streaming/risk-feature-api/internal/configs"
 	"github.com/sunquan03/risk-scoring-streaming/risk-feature-api/internal/handlers"
-	"github.com/sunquan03/risk-scoring-streaming/risk-feature-api/package/utils"
+	"github.com/sunquan03/risk-scoring-streaming/risk-feature-api/internal/tidb"
 )
 
 func main() {
-	tidb.Init(*configs.LoadConfig())
+	cfg := configs.LoadConfig()
+	tidb.Init(*cfg)
+
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
@@ -28,10 +29,9 @@ func main() {
 		v1.DELETE("/risk-profile/:client_id/cache", handlers.InvalidateCache)
 	}
 
-	addr := utils.GetEnv("APP_HOST", ":8080")
-	log.Printf("risk-feature-api starting on %s", addr)
+	log.Printf("risk-feature-api starting on %s", cfg.APIAddr)
 
-	if err := r.Run(addr); err != nil {
+	if err := r.Run(cfg.APIAddr); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
 }

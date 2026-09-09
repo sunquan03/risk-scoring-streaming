@@ -1,6 +1,7 @@
 package tidb
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sync"
@@ -30,12 +31,19 @@ func Init(cfg configs.Config) {
 		if err != nil {
 			panic(fmt.Sprintf("tidb: sql.Open failed: %v", err))
 		}
+		maxIdle := cfg.TiDBMaxIdle
+		if cfg.TiDBMaxConns > 0 && maxIdle > cfg.TiDBMaxConns {
+			maxIdle = cfg.TiDBMaxConns
+		}
 		db.SetMaxOpenConns(cfg.TiDBMaxConns)
-		db.SetMaxIdleConns(cfg.TiDBMaxIdle)
+		db.SetMaxIdleConns(maxIdle)
 		db.SetConnMaxLifetime(4 * time.Minute)
 
-		if err := db.Ping(); err != nil {
-			panic(fmt.Sprintf("tidb: ping failed: %v", err))
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
+			panic(fmt.Sprintf("tidb: ping %s:%d/%s failed: %v",
+				cfg.TiDBHost, cfg.TiDBPort, cfg.TiDBDatabase, err))
 		}
 		instance = &Client{db: db}
 	})

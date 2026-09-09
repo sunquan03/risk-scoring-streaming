@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"time"
 )
 
@@ -35,7 +36,7 @@ func (c *Client) GetFromCache(ctx context.Context, cacheKey string) (*CacheResul
 		return nil, false
 	}
 	if err != nil {
-		//todo add logs or smth
+		log.Printf("kv_cache: read failed for %s: %v", cacheKey, err)
 		return nil, false
 	}
 
@@ -45,7 +46,7 @@ func (c *Client) GetFromCache(ctx context.Context, cacheKey string) (*CacheResul
 
 	var value map[string]any
 	if err := json.Unmarshal(valueJSON, &value); err != nil {
-		//todo add logs or smth
+		log.Printf("kv_cache: corrupt value_json for %s: %v", cacheKey, err)
 		return nil, false
 	}
 

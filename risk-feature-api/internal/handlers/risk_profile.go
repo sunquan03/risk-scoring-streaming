@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -13,11 +15,13 @@ import (
 )
 
 type RiskProfileResponse struct {
-	ClientID      string                            `json:"client_id"`
-	FetchedAt     time.Time                         `json:"fetched_at"`
-	CacheHit      bool                              `json:"cache_hit"`
-	FeatureGroups map[string]map[string]interface{} `json:"feature_groups"`
-	Errors        map[string]string                 `json:"errors,omitempty"`
+	ClientID       string                            `json:"client_id"`
+	FetchedAt      time.Time                         `json:"fetched_at"`
+	CacheHit       bool                              `json:"cache_hit"`
+	CachedGroups   []string                          `json:"cached_groups"`
+	ComputedGroups []string                          `json:"computed_groups"`
+	FeatureGroups  map[string]map[string]interface{} `json:"feature_groups"`
+	Errors         map[string]string                 `json:"errors,omitempty"`
 }
 
 func GetRiskProfile(c *gin.Context) {
@@ -34,6 +38,7 @@ func GetRiskProfile(c *gin.Context) {
 
 	var results sync.Map
 	var errors sync.Map
+	var fromCache sync.Map
 	var wg sync.WaitGroup
 	for _, fg := range features.Groups {
 		wg.Add(1)
@@ -44,6 +49,7 @@ func GetRiskProfile(c *gin.Context) {
 
 			if hit, ok := client.GetFromCache(ctx, cacheKey); ok {
 				results.Store(group.ID, hit.Value)
+				fromCache.Store(group.ID, true)
 				return
 			}
 
@@ -54,9 +60,12 @@ func GetRiskProfile(c *gin.Context) {
 			}
 
 			ttl := time.Duration(group.TTL) * time.Second
-			client.SetCache(ctx, cacheKey, value, &ttl)
+			if err := client.SetCache(ctx, cacheKey, value, &ttl); err != nil {
+				log.Printf("risk-profile: cache write failed for %s: %v", cacheKey, err)
+			}
 
 			results.Store(group.ID, value)
+			fromCache.Store(group.ID, false)
 		}(fg)
 	}
 
@@ -73,11 +82,26 @@ func GetRiskProfile(c *gin.Context) {
 		return true
 	})
 
+	cachedGroups := []string{}
+	computedGroups := []string{}
+	fromCache.Range(func(key, value any) bool {
+		if value.(bool) {
+			cachedGroups = append(cachedGroups, key.(string))
+		} else {
+			computedGroups = append(computedGroups, key.(string))
+		}
+		return true
+	})
+	sort.Strings(cachedGroups)
+	sort.Strings(computedGroups)
+
 	resp := RiskProfileResponse{
-		ClientID:      clientID,
-		FetchedAt:     time.Now().UTC(),
-		CacheHit:      len(errMap) == 0 && len(featureGroups) == len(features.Groups),
-		FeatureGroups: featureGroups,
+		ClientID:       clientID,
+		FetchedAt:      time.Now().UTC(),
+		CacheHit:       len(cachedGroups) > 0 && len(computedGroups) == 0 && len(errMap) == 0,
+		CachedGroups:   cachedGroups,
+		ComputedGroups: computedGroups,
+		FeatureGroups:  featureGroups,
 	}
 	if len(errMap) > 0 {
 		resp.Errors = errMap
@@ -85,7 +109,7 @@ func GetRiskProfile(c *gin.Context) {
 
 	status := http.StatusOK
 	if len(featureGroups) == 0 {
-		status = http.StatusNotFound
+		status = http.StatusInternalServerError
 	}
 
 	c.JSON(status, resp)
@@ -139,7 +163,9 @@ func GetFeatureGroup(c *gin.Context) {
 	}
 
 	ttl := time.Duration(target.TTL) * time.Second
-	client.SetCache(ctx, cacheKey, value, &ttl)
+	if err := client.SetCache(ctx, cacheKey, value, &ttl); err != nil {
+		log.Printf("risk-profile: cache write failed for %s: %v", cacheKey, err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"client_id":  clientID,
