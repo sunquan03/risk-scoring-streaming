@@ -53,7 +53,7 @@ class Producer:
             logger.error("Delivery fail: %s %s", msg.topic(), err)
 
     def send_event(self):
-        topic = random.choice(self._config.topics, weights=self._weights)[0]
+        topic = random.choices(self._config.topics, weights=self._weights)[0]
         event = GENERATORS[topic](self._pool)
 
         payload = json.dumps(event).encode("utf-8")
@@ -90,8 +90,10 @@ class Producer:
 
 
                 self._producer.poll(0.1)
+                self._sent += 1
         finally:
             self._producer.flush()
+            self._sent += 1
 
 
 def main():

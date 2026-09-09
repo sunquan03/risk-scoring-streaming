@@ -9,8 +9,8 @@ TOPIC_MONEY = "client-money"
 
 KZ_CITIES = [
     "Almaty", "Astana", "Shymkent", "Karaganda", "Aktobe", "Taraz",
-    "Pavlodar", "Oskemen", "Semey", "Atyrau", "Kostanay", "Kokshetau"
-    "Kyzylorda", "Oral", "Petropavl", "Aktau", "Shymkent", "Turkestan"
+    "Pavlodar", "Oskemen", "Semey", "Atyrau", "Kostanay", "Kokshetau",
+    "Kyzylorda", "Oral", "Petropavl", "Aktau", "Turkestan"
 ]
 PRODUCTS = ["CONSUMER_LOAN", "MORTGAGE", "MICRO", "AUTO_LOAN", "CREDIT_CARD"]
 CHANNELS = ["MOBILE_APP", "WEB", "BRANCH", "KASPI_PAY", "CALL_CENTER"]
@@ -62,6 +62,7 @@ class EntityPool:
             loans = self.loans_per_client.get(client_id)
             if loans:
                 return client_id, random.choice(loans)
+        return "", ""
 
 
 def build_entry_pool(seed: int, n_cli: int) -> EntityPool:
@@ -110,7 +111,7 @@ def gen_loan_application(pool: EntityPool) -> dict:
 
 
 def gen_loan_payment(pool: EntityPool) -> dict:
-    client_id, loan_id = pool.random_client_with_loan()
+    client_id, loan_id = pool.random_client_with_loans()
     event_type = random.choices(PAY_EVENT_TYPES, weights=PAY_EVENT_WEIGHTS)[0]
 
     scheduled = round(random.uniform(5_000, 80_000), 2)
@@ -135,7 +136,7 @@ def gen_loan_payment(pool: EntityPool) -> dict:
 
 
 def gen_loan_operation(pool: EntityPool) -> dict:
-    client_id, loan_id = pool.random_client_with_loan()
+    client_id, loan_id = pool.random_client_with_loans()
     suspicious = random.random() < 0.05
 
     return {
@@ -146,7 +147,7 @@ def gen_loan_operation(pool: EntityPool) -> dict:
         "amount": round(random.uniform(10_000, 2_000_000), 2),
         "device_id": str(uuid.uuid4()),
         "device_type": random.choice(DEVICE_TYPES),
-        "ip_country": random.choices(["KZ", "RU", "US", "DE", "TR", "UK", "UZ", "KG"], weights=[88, 5, 3, 2, 2])[0],
+        "ip_country": random.choices(["KZ", "RU", "US", "DE", "TR", "UK", "UZ", "KG"], weights=[88, 5, 3, 2, 2, 2, 18, 18])[0],
         "is_suspicious": suspicious,
         "suspicious_reason": random.choice(
             ["UNUSUAL_LOCATION", "NEW_DEVICE", "VELOCITY_BREACH"]
