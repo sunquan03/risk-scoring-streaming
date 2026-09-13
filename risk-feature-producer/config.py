@@ -9,6 +9,8 @@ class Config:
     kafka_sasl_mechanism: str | None = os.environ.get("KAFKA_SASL_MECHANISM")
     kafka_sasl_username: str | None = os.environ.get("KAFKA_SASL_USERNAME")
     kafka_sasl_password: str | None = os.environ.get("KAFKA_SASL_PASSWORD")
+    kafka_ssl_ca_location: str | None = os.environ.get("KAFKA_SSL_CA_LOCATION")
+    kafka_idempotence: bool = os.environ.get("KAFKA_IDEMPOTENCE", "true").lower() == "true"
 
     interval_ms: int = int(os.environ.get("INTERVAL_MS", "500"))
     max_events: int = int(os.environ.get("MAX_EVENTS", "0"))

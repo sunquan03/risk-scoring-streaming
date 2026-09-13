@@ -28,15 +28,18 @@ class Producer:
             "bootstrap.servers": config.kafka_bootstrap,
             "linger.ms": 5,
             "acks": "all",
-            "enable.idempotence": True,
+            "enable.idempotence": config.kafka_idempotence,
+            "error_cb":           self._on_kafka_error,
+            "logger":             logger,
         }
         if config.kafka_security_protocol != "PLAINTEXT":
             producerConf["security.protocol"] = config.kafka_security_protocol
-        if config.kafka_sasl_mechanism:
-            producerConf["sasl.mechanism"] = config.kafka_sasl_mechanism
-            producerConf["sasl.username"] = config.kafka_sasl_username
-            producerConf["sasl.password"] = config.kafka_sasl_password
-
+        if config.kafka_security_protocol.startswith("SASL"):
+            producerConf["sasl.mechanism"] = config.kafka_sasl_mechanism or "SCRAM-SHA-512"
+            producerConf["sasl.username"]  = config.kafka_sasl_username
+            producerConf["sasl.password"]  = config.kafka_sasl_password
+        if config.kafka_ssl_ca_location:
+            producerConf["ssl.ca.location"] = config.kafka_ssl_ca_location
         self._producer = confluent_kafka.Producer(producerConf)
 
         self._weights = [TOPIC_WEIGHTS[t] for t in config.topics]
@@ -46,7 +49,9 @@ class Producer:
     def handle_signal(self, signum, frame):
         logger.warning("Received shutdown signal %s", signum)
         self._running = False
-
+        
+    def _on_kafka_error(self, err) -> None:
+        logger.error("kafka client error: %s", err)
     def check_delivery(self, err, msg):
         if err is not None:
             self._failed += 1
