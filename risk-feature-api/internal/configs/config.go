@@ -12,6 +12,7 @@ type Config struct {
 	TiDBDatabase string
 	TiDBMaxConns int
 	TiDBMaxIdle  int
+	TiDBTLS      string
 	APIAddr      string
 }
 
