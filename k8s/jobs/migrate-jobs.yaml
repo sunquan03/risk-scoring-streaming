@@ -1,0 +1,131 @@
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-tidb
+  namespace: risk-pipeline
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: migrate-tidb
+        component: migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: mysql:8.4
+          env:
+            - name: TIDB_HOST
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: TIDB_HOST } }
+            - name: TIDB_PORT
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: TIDB_PORT } }
+            - name: TIDB_USER
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: TIDB_USER } }
+            - name: TIDB_DATABASE
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: TIDB_DATABASE } }
+            - name: TIDB_PASSWORD
+              valueFrom: { secretKeyRef: { name: pipeline-secret, key: TIDB_PASSWORD } }
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+
+              my() {
+                mysql -h "$TIDB_HOST" -P "$TIDB_PORT" -u "$TIDB_USER" \
+                      -p"$TIDB_PASSWORD" --ssl-mode=REQUIRED \
+                      --connect-timeout=10 "$@"
+              }
+
+              echo "connecting to $TIDB_HOST:$TIDB_PORT"
+              my -e "SELECT 1" >/dev/null
+              echo "connected"
+
+              my -e "CREATE DATABASE IF NOT EXISTS \`$TIDB_DATABASE\`"
+              my "$TIDB_DATABASE" < /migrations/01_tidb_schema.sql
+              TABLES=$(my -N -B "$TIDB_DATABASE" -e \
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$TIDB_DATABASE'")
+              echo "schema applied — $TABLES tables"
+
+              # Seed files are plain INSERTs, so only load into an empty table.
+              CLIENTS=$(my -N -B "$TIDB_DATABASE" -e "SELECT COUNT(*) FROM clients")
+              if [ "$CLIENTS" = "0" ]; then
+                echo "loading seed data"
+                my "$TIDB_DATABASE" < /migrations/clients_insert.sql
+                my "$TIDB_DATABASE" < /migrations/loan_accounts_insert.sql
+                CLIENTS=$(my -N -B "$TIDB_DATABASE" -e "SELECT COUNT(*) FROM clients")
+              fi
+              LOANS=$(my -N -B "$TIDB_DATABASE" -e "SELECT COUNT(*) FROM loan_accounts")
+              echo "done — $CLIENTS clients, $LOANS loans"
+      volumes:
+        - name: sql
+          configMap:
+            name: migration-sql
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-postgres
+  namespace: risk-pipeline
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: migrate-postgres
+        component: migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: postgres:16-alpine
+          env:
+            - name: PG_HOST
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: PG_HOST } }
+            - name: PG_PORT
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: PG_PORT } }
+            - name: PG_USER
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: PG_USER } }
+            - name: PG_DATABASE
+              valueFrom: { configMapKeyRef: { name: pipeline-config, key: PG_DATABASE } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: pipeline-secret, key: PG_PASSWORD } }
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              ADMIN="host=$PG_HOST port=$PG_PORT user=$PG_USER dbname=defaultdb sslmode=require connect_timeout=10"
+              TARGET="host=$PG_HOST port=$PG_PORT user=$PG_USER dbname=$PG_DATABASE sslmode=require connect_timeout=10"
+
+              echo "connecting to $PG_HOST:$PG_PORT"
+              psql "$ADMIN" -c "SELECT 1" >/dev/null
+              echo "connected"
+
+              # Aiven provisions 'defaultdb'; the pipeline wants its own database.
+              if ! psql "$ADMIN" -tAc "SELECT 1 FROM pg_database WHERE datname='$PG_DATABASE'" | grep -q 1; then
+                echo "creating database $PG_DATABASE"
+                psql "$ADMIN" -c "CREATE DATABASE \"$PG_DATABASE\""
+              fi
+
+              psql "$TARGET" -v ON_ERROR_STOP=1 -q -f /migrations/02_postgres_config_schema.sql
+
+              TOPICS=$(psql "$TARGET" -tAc "SELECT COUNT(*) FROM pipeline_config.kafka_topics")
+              FGROUPS=$(psql "$TARGET" -tAc "SELECT COUNT(*) FROM pipeline_config.feature_groups")
+              echo "done — $TOPICS topics, $FGROUPS feature groups"
+      volumes:
+        - name: sql
+          configMap:
+            name: migration-sql
