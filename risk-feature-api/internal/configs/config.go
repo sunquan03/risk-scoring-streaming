@@ -23,6 +23,7 @@ func LoadConfig() *Config {
 		TiDBUser:     utils.GetEnv("TIDB_USER", "root"),
 		TiDBPassword: utils.GetEnv("TIDB_PASSWORD", ""),
 		TiDBDatabase: utils.GetEnv("TIDB_DATABASE", "risk_pipeline"),
+		TiDBTLS:      utils.GetEnv("TIDB_TLS", ""),
 		TiDBMaxConns: utils.GetEnvInt("TIDB_MAX_CONNS", 20),
 		TiDBMaxIdle:  utils.GetEnvInt("TIDB_MAX_IDLE", 10),
 		APIAddr:      utils.GetEnv("API_ADDR", ":8080"),
