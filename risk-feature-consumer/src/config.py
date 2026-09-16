@@ -11,6 +11,7 @@ class Settings:
         self.kafka_sasl_mechanism: str | None = os.environ.get("KAFKA_SASL_MECHANISM", None)
         self.kafka_sasl_username: str | None = os.environ.get("KAFKA_SASL_USERNAME", None)
         self.kafka_sasl_password: str | None = os.environ.get("KAFKA_SASL_PASSWORD", None)
+        self.kafka_ssl_ca_location: str | None = os.environ.get("KAFKA_SSL_CA_LOCATION", None)
 
         self.tidb_host: str = os.environ.get("TIDB_HOST", "localhost")
         self.tidb_port: int = int(os.environ.get("TIDB_PORT", "4000"))

@@ -34,19 +34,38 @@ class Consumer:
             raise ValueError(f"Topic {topic_config.topic_name} is not active")
 
         settings = pipeline_config.settings
-        self._consumer = confluent_kafka.Consumer({
+
+        consumer_cfg = {
             "bootstrap.servers": settings.kafka_bootstrap,
             "group.id": topic_config.consumer_group,
+            "security.protocol": settings.kafka_security_protocol,
             "enable.auto.commit": False,
             "auto.offset.reset": "earliest",
             "max.poll.interval.ms": topic_config.max_poll_interval_ms,
             "session.timeout.ms": topic_config.session_timeout_ms,
-        })
-        signal.signal(signal.SIGTERM, self._handle_sigterm)
-        signal.signal(signal.SIGINT, self._handle_sigterm)
+            "logger": log,
+            "error_cb": self._on_kafka_error,
+        }
+
+        if settings.kafka_security_protocol.startswith("SASL"):
+            consumer_cfg["sasl.mechanism"] = settings.kafka_sasl_mechanism or "SCRAM-SHA-512"
+            consumer_cfg["sasl.username"] = settings.kafka_sasl_username
+            consumer_cfg["sasl.password"] = settings.kafka_sasl_password
+
+        if settings.kafka_ssl_ca_location:
+            consumer_cfg["ssl.ca.location"] = settings.kafka_ssl_ca_location
+
         self._running = True
         self._batch_number = 0
 
+        self._consumer = confluent_kafka.Consumer(consumer_cfg)
+
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
+        signal.signal(signal.SIGINT, self._handle_sigterm)
+
+
+    def _on_kafka_error(self, err) -> None:
+        log.error("kafka_client_error", error=str(err))
 
     def run(self):
         self._consumer.subscribe([self.topic_config.topic_name])
